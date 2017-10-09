@@ -19,7 +19,6 @@ import (
 
 type VM struct {
 	Config   types.VMConfig
-	stdin    io.WriteCloser
 	stdout   io.ReadCloser
 	stderr   io.ReadCloser
 	process  *os.Process
@@ -61,20 +60,6 @@ func (vm *VM) readStdout(reader io.Reader) {
 
 func (vm *VM) Log(msg string) {
 	fmt.Printf("[VM %d] %s\n", vm.Config.Id, msg)
-}
-
-func (vm *VM) SendStdin(command string) error {
-	if vm.stdin == nil {
-		return errors.New("Could not send halt: stdin not available")
-	}
-
-	_, err := vm.stdin.Write([]byte(command + "\n"))
-
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (vm *VM) Quit() error {
@@ -136,9 +121,6 @@ func (vm *VM) Close() {
 	closeErr = vm.stderr.Close()
 	utils.RecoverableCheck(closeErr, "Could not close stderr")
 
-	closeErr = vm.stdin.Close()
-	utils.RecoverableCheck(closeErr, "Could not close stdin")
-
 	closeErr = vm.process.Release()
 	utils.RecoverableCheck(closeErr, "Could not close process")
 
@@ -162,9 +144,6 @@ func (vm *VM) Start() error {
 
 	cmd := cli.CreateKVMCommand(kvmbin, vm.Config)
 
-	stdin, stdinErr := cmd.StdinPipe()
-	utils.Check(stdinErr, "Could not get stdin")
-
 	stdout, stdoutErr := cmd.StdoutPipe()
 	utils.Check(stdoutErr, "Could not get stdout")
 
@@ -173,7 +152,6 @@ func (vm *VM) Start() error {
 
 	vm.stdout = stdout
 	vm.stderr = stderr
-	vm.stdin = stdin
 
 	vm.Log("Starting...")
 
