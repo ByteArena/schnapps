@@ -18,13 +18,12 @@ import (
 )
 
 type VM struct {
-	Config   types.VMConfig
-	stdout   io.ReadCloser
-	stderr   io.ReadCloser
-	process  *os.Process
-	qmp      *qmp.SocketMonitor
-	events   chan qmp.Event
-	Metadata types.VMMetadata
+	Config  types.VMConfig
+	stdout  io.ReadCloser
+	stderr  io.ReadCloser
+	process *os.Process
+	qmp     *qmp.SocketMonitor
+	events  chan qmp.Event
 }
 
 func NewVM(config types.VMConfig) *VM {
@@ -35,8 +34,7 @@ func NewVM(config types.VMConfig) *VM {
 	}
 
 	return &VM{
-		Config:   config,
-		Metadata: make(map[string]string),
+		Config: config,
 	}
 }
 

@@ -35,6 +35,7 @@ type VMConfig struct {
 	MegMemory     int
 	CPUAmount     int
 	CPUCoreAmount int
+	Metadata      VMMetadata
 }
 
 type VMMetadata map[string]string
