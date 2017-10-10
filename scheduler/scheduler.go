@@ -47,6 +47,33 @@ func (p *Pool) init() error {
 	return nil
 }
 
+func (p *Pool) SelectAndPop(take func(*vm.VM) bool) (*vm.VM, error) {
+	var takeElement *vm.VM
+	newQueue := p.queue
+
+	if len(newQueue) == 0 {
+		vm := p.provisionVmFn()
+
+		if vm != nil {
+			return nil, errors.New("Cannot pop element: backend is empty")
+		} else {
+			newQueue = append(newQueue, vm)
+		}
+	}
+
+	for _, e := range newQueue {
+		if takeElement == nil && take(e) == true {
+			takeElement = e
+		} else {
+			newQueue = append(newQueue, e)
+		}
+	}
+
+	p.queue = newQueue
+
+	return takeElement, nil
+}
+
 func (p *Pool) Pop() (*vm.VM, error) {
 	if len(p.queue) == 0 {
 		vm := p.provisionVmFn()
