@@ -1,6 +1,6 @@
 # schnapps
 
-> Interface and tooling for running in KVM
+> Interface and tooling for running on KVM
 
 ## Running in Docker
 
