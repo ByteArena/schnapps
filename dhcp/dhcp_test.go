@@ -9,7 +9,7 @@ import (
 func TestDHCPServer(t *testing.T) {
 	assert := assert.New(t)
 
-	cidr := "192.168.0.1/32"
+	cidr := "192.168.0.1/24"
 
 	s, err := NewDHCPServer(cidr)
 	assert.NoError(err)
