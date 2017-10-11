@@ -14,7 +14,7 @@
 - Random MAC address generator ([doc](/docs/id.md))
 - Uses libvirt events
 - Manages a KVM process, its lifecycle and its configuration ([doc](/docs/vm.md))
-- Simple VM scheduler
+- Simple VM scheduler ([doc](/docs/scheduler.md))
 - Metadata server ([doc](/docs/metadata.md))
 - Custom DHCP server (Ipv4 only) ([doc](/docs/dhcp.md))
 

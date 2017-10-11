@@ -32,4 +32,4 @@ check(err)
 
 ### DNS response: lame referral
 
-You might have forgot the `.` at the end of your zone name.
+You might have forgot the `.` (dot) at the end of your zone name.
