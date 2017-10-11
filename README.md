@@ -16,8 +16,8 @@
 - Manages a KVM process, its lifecycle and its configuration ([doc](/docs/vm.md))
 - Simple VM scheduler
 - Metadata server
+- Custom DHCP server (Ipv4 only) ([doc](/docs/dhcp.md))
 
 ## Roadmap
 
 - Network gateway (via tap/tun on the host)
-- Custom DHCP server
