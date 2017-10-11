@@ -2,20 +2,9 @@ package dhcp
 
 import (
 	"errors"
-	"fmt"
 	"math"
 	"net"
 )
-
-const (
-	IPAvailable = true
-)
-
-type key struct {
-	ip net.IP
-}
-
-type ipRangeBackend map[string]bool
 
 type DHCPServer struct {
 	Size           int
@@ -34,7 +23,10 @@ func NewDHCPServer(cidr string) (*DHCPServer, error) {
 
 	size, _ := ipv4Net.Mask.Size()
 
-	fmt.Println(size)
+	if size > 30 {
+		return nil, errors.New("Subnet is too small, CIDR should be at least /30")
+	}
+
 	max := int(math.Pow(2.0, 32.0-float64(size))) - 1 // Skip the broadcast address
 
 	return &DHCPServer{
