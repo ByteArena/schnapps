@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"errors"
+	"time"
 
 	"github.com/bytearena/schnapps"
 )
@@ -28,11 +29,31 @@ func NewFixedVMPool(size int, provisionVmFn func() *vm.VM) (*Pool, error) {
 
 	err := pool.init()
 
+	go pool.runBackgroundGC(time.Duration(5 * time.Second))
+
 	return pool, err
 }
 
+/*
+	The garbage collection is reponsible for maintaining a healthy set of VM.
+	Currently it only checks for VM derefernces (nil)
+*/
+func (p *Pool) runBackgroundGC(interval time.Duration) {
+	for {
+		for _, vm := range p.queue {
+			if vm == nil {
+				p.Delete(vm)
+			}
+		}
+
+		<-time.After(interval)
+	}
+}
+
 func (p *Pool) init() error {
-	for i := 1; i <= p.size; i++ {
+	var i = 0
+
+	for {
 		vm := p.provisionVmFn()
 
 		if vm != nil {
@@ -41,6 +62,12 @@ func (p *Pool) init() error {
 			if err != nil {
 				return err
 			}
+
+			i++
+		}
+
+		if i >= p.size {
+			break
 		}
 	}
 
