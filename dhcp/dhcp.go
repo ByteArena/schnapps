@@ -9,7 +9,11 @@ const (
 	IPAvailable = true
 )
 
-type ipRangeBackend map[*net.IP]bool
+type key struct {
+	ip net.IP
+}
+
+type ipRangeBackend map[*key]bool
 
 type DHCPServer struct {
 	ips ipRangeBackend
@@ -26,7 +30,8 @@ func NewDHCPServer(cidr string) (*DHCPServer, error) {
 	backend := make(ipRangeBackend, 0)
 
 	for _, ip := range ips {
-		backend[&ip] = IPAvailable
+		key := key{ip}
+		backend[&key] = IPAvailable
 	}
 
 	return &DHCPServer{
@@ -39,21 +44,19 @@ func (dhcp *DHCPServer) Pop() (string, error) {
 		return "", errors.New("Cannot pop from pool: no more IP available")
 	}
 
-	var ip string
-
 	// Take the first one (in guarantee random order)
 	for x, _ := range dhcp.ips {
-		ip = x.String()
 		delete(dhcp.ips, x)
 
-		break
+		return x.ip.String(), nil
 	}
 
-	return ip, nil
+	return "", nil
 }
 
 func (dhcp *DHCPServer) Release(ip string) {
 	parsedIp := net.ParseIP(ip)
+	key := key{parsedIp}
 
-	dhcp.ips[&parsedIp] = IPAvailable
+	dhcp.ips[&key] = IPAvailable
 }
