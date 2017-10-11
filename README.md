@@ -15,7 +15,7 @@
 - Uses libvirt events
 - Manages a KVM process, its lifecycle and its configuration ([doc](/docs/vm.md))
 - Simple VM scheduler
-- Metadata server
+- Metadata server ([doc](/docs/metadata.md))
 - Custom DHCP server (Ipv4 only) ([doc](/docs/dhcp.md))
 
 ## Roadmap
