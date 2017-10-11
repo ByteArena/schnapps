@@ -15,13 +15,13 @@ func TestDHCPServer(t *testing.T) {
 	}
 
 	examples := []struct {
-		Name       string
-		Network    string
-		Count      int
-		InitError  error
-		Results    []Result
-		UsedIPs    []string
-		StartIndex int
+		Name          string
+		Network       string
+		InitError     error
+		Results       []Result
+		UsedIPs       []string
+		StartIndex    int
+		FreeIpAtIndex map[int]string
 	}{
 		{
 			Name:      "it should send an error cidr is not correctly formatted",
@@ -31,19 +31,16 @@ func TestDHCPServer(t *testing.T) {
 		{
 			Name:    "it should generate an ip",
 			Network: "192.168.0.1/24",
-			Count:   1,
 			Results: []Result{{IP: "192.168.0.1"}},
 		},
 		{
 			Name:    "it should send an error when there is no IP available",
 			Network: "10.0.0.0/30",
-			Count:   3,
 			Results: []Result{{IP: "10.0.0.1"}, {IP: "10.0.0.2"}, {Error: errors.New("No ip left")}},
 		},
 		{
 			Name:    "it should skip an ip if this ip is used",
 			Network: "10.0.0.0/24",
-			Count:   2,
 			UsedIPs: []string{"10.0.0.2"},
 			Results: []Result{{IP: "10.0.0.1"}, {IP: "10.0.0.3"}},
 		},
@@ -51,7 +48,6 @@ func TestDHCPServer(t *testing.T) {
 			Name:    "it should send an error when all ips are in use",
 			Network: "10.0.0.0/30",
 			UsedIPs: []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"},
-			Count:   1,
 			Results: []Result{{Error: errors.New("No ip left")}},
 		},
 		{
@@ -63,15 +59,19 @@ func TestDHCPServer(t *testing.T) {
 			Name:       "it should loop back when the network is missing ips",
 			Network:    "10.0.0.0/24",
 			StartIndex: 253,
-			Count:      2,
 			Results:    []Result{{IP: "10.0.0.254"}, {IP: "10.0.0.1"}},
 		},
 		{
 			Name:       "it should continue to the next byte when the first one is full",
 			Network:    "10.0.0.0/16",
 			StartIndex: 254,
-			Count:      3,
 			Results:    []Result{{IP: "10.0.0.255"}, {IP: "10.0.1.0"}, {IP: "10.0.1.1"}},
+		},
+		{
+			Name:          "it should re-use released ips",
+			Network:       "10.0.0.0/30",
+			FreeIpAtIndex: map[int]string{2: "10.0.0.2"},
+			Results:       []Result{{IP: "10.0.0.1"}, {IP: "10.0.0.2"}, {Error: errors.New("No ip left")}, {IP: "10.0.0.2"}},
 		},
 	}
 
@@ -96,7 +96,7 @@ func TestDHCPServer(t *testing.T) {
 			server.Current = example.StartIndex
 
 			// Test results
-			for i := 0; i < example.Count; i++ {
+			for i := 0; i < len(example.Results); i++ {
 				ip, err := server.Pop()
 				if example.Results[i].Error != nil {
 					require.NotNil(t, err)
@@ -106,6 +106,10 @@ func TestDHCPServer(t *testing.T) {
 				}
 
 				assert.Equal(t, example.Results[i].IP, ip)
+
+				if example.FreeIpAtIndex[i] != "" {
+					server.Release(example.FreeIpAtIndex[i])
+				}
 			}
 		})
 	}
