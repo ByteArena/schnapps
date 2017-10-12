@@ -7,46 +7,74 @@ import (
 	"github.com/bytearena/schnapps"
 )
 
+const (
+	GC_INTERVAL = time.Duration(5 * time.Second)
+)
+
 type Queue []*vm.VM
 
 type Pool struct {
 	size  int
 	queue Queue
 
-	provisionVmFn func() *vm.VM
+	provisionVmFn  func() *vm.VM
+	healtcheckVmFn func(*vm.VM) bool
+
+	tickGC *time.Ticker
+	stopGC chan bool
 }
 
-func NewFixedVMPool(size int, provisionVmFn func() *vm.VM) (*Pool, error) {
+func NewFixedVMPool(size int, provisionVmFn func() *vm.VM, healtcheckVmFn func(*vm.VM) bool) (*Pool, error) {
 	if size < 0 {
 		return nil, errors.New("Pool size cannot be negative")
 	}
 
 	pool := &Pool{
-		size:          size,
-		queue:         make(Queue, 0),
-		provisionVmFn: provisionVmFn,
+		size:           size,
+		queue:          make(Queue, 0),
+		provisionVmFn:  provisionVmFn,
+		healtcheckVmFn: healtcheckVmFn,
+
+		tickGC: time.NewTicker(GC_INTERVAL),
+		stopGC: make(chan bool),
 	}
 
 	err := pool.init()
 
-	go pool.runBackgroundGC(time.Duration(5 * time.Second))
+	go pool.runBackgroundGC()
 
 	return pool, err
 }
 
+func (p *Pool) gc() {
+
+	if len(p.queue) == 0 {
+		return // Nothing to check here
+	}
+
+	for _, vm := range p.queue {
+
+		if p.healtcheckVmFn(vm) == false {
+			p.Delete(vm)
+		}
+	}
+}
+
 /*
 	The garbage collection is reponsible for maintaining a healthy set of VM.
-	Currently it only checks for VM derefernces (nil)
 */
-func (p *Pool) runBackgroundGC(interval time.Duration) {
+func (p *Pool) runBackgroundGC() {
+
 	for {
-		for _, vm := range p.queue {
-			if vm == nil {
-				p.Delete(vm)
-			}
+		select {
+		case <-p.stopGC:
+			return
+
+		case <-p.tickGC.C:
+			p.gc()
+
 		}
 
-		<-time.After(interval)
 	}
 }
 
@@ -103,13 +131,7 @@ func (p *Pool) SelectAndPop(take func(*vm.VM) bool) (*vm.VM, error) {
 
 func (p *Pool) Pop() (*vm.VM, error) {
 	if len(p.queue) == 0 {
-		vm := p.provisionVmFn()
-
-		if vm == nil {
-			return nil, errors.New("Cannot pop element: backend is empty")
-		} else {
-			return vm, nil
-		}
+		return nil, errors.New("Cannot pop element: backend is empty")
 	} else {
 		queueLen := len(p.queue)
 
@@ -131,25 +153,14 @@ func (p *Pool) Release(e *vm.VM) error {
 }
 
 func (p *Pool) Delete(deletedVm *vm.VM) error {
-	newQueue := make(Queue, 0)
+	for {
+		vm := p.provisionVmFn()
 
-	for _, vm := range p.queue {
-		if deletedVm != vm {
-			newQueue = append(newQueue, vm)
+		if vm != nil {
+			p.Release(vm)
+			break
 		}
 	}
-
-	if len(newQueue) <= p.size {
-		newVm := p.provisionVmFn()
-
-		if newVm != nil {
-			if err := p.Release(newVm); err != nil {
-				return err
-			}
-		}
-	}
-
-	p.queue = newQueue
 
 	return nil
 }
