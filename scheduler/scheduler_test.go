@@ -20,18 +20,19 @@ func TestFixedVMPool(t *testing.T) {
 	assert.Nil(t, errPop1)
 	assert.NotNil(t, e1)
 
+	assert.Equal(t, pool.GetBackendSize(), 0)
+
+	// Expect error
 	e2, errPop2 := pool.Pop()
 	assert.Nil(t, e2)
 	assert.NotNil(t, errPop2)
 
 	pool.Release(e1)
 
-	e3, errPop3 := pool.Pop()
-	assert.Nil(t, errPop3)
-	assert.NotNil(t, e3)
+	assert.Equal(t, pool.GetBackendSize(), 1)
 }
 
-func TestFixedVMPoolDelete(t *testing.T) {
+func TestPoolDelete(t *testing.T) {
 	provisionVmFn := func() *vm.VM {
 		return &vm.VM{}
 	}
@@ -46,12 +47,10 @@ func TestFixedVMPoolDelete(t *testing.T) {
 
 	pool.Delete(e1)
 
-	e2, errPop2 := pool.Pop()
-	assert.Nil(t, errPop2)
-	assert.NotNil(t, e2)
+	assert.Equal(t, pool.GetBackendSize(), 1)
 }
 
-func TestFixedVMPoolGC(t *testing.T) {
+func TestPoolGC(t *testing.T) {
 	healtcheckInc := 0
 	provisionInc := 0
 
@@ -73,4 +72,45 @@ func TestFixedVMPoolGC(t *testing.T) {
 
 	assert.Equal(t, healtcheckInc, size)
 	assert.Equal(t, provisionInc, size*2)
+
+	assert.Equal(t, pool.GetBackendSize(), 1)
+}
+
+func TestPoolSelectAndPop(t *testing.T) {
+	provisionVmFn := func() *vm.VM {
+		return &vm.VM{}
+	}
+
+	size := 1
+	pool, err := NewFixedVMPool(size, provisionVmFn, NoHealtcheck)
+	assert.Nil(t, err)
+
+	vm1, popErr1 := pool.SelectAndPop(func(vm *vm.VM) bool {
+		return true
+	})
+
+	assert.Nil(t, popErr1)
+	assert.NotNil(t, vm1)
+	assert.Equal(t, pool.GetBackendSize(), 0)
+
+	vm2, popErr2 := pool.SelectAndPop(func(vm *vm.VM) bool {
+		return true
+	})
+
+	assert.Nil(t, vm2)
+	assert.NotNil(t, popErr2)
+}
+
+func TestPoolProvisionRetriesLimit(t *testing.T) {
+	i := 0
+	provisionVmFn := func() *vm.VM {
+		i++
+		return nil
+	}
+
+	_, err := NewFixedVMPool(1, provisionVmFn, NoHealtcheck)
+	assert.NotNil(t, err)
+
+	assert.Equal(t, err, PROVISION_LIMIT_ERROR)
+	assert.Equal(t, i, PROVISION_RETRY_TIMES)
 }

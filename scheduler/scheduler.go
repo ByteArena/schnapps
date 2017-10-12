@@ -7,8 +7,11 @@ import (
 	"github.com/bytearena/schnapps"
 )
 
-const (
+var (
 	GC_INTERVAL = time.Duration(5 * time.Second)
+
+	PROVISION_RETRY_TIMES = 3
+	PROVISION_LIMIT_ERROR = errors.New("Cannot provision pool: retry limit reached")
 )
 
 type Queue []*vm.VM
@@ -81,21 +84,33 @@ func (p *Pool) runBackgroundGC() {
 func (p *Pool) init() error {
 	var i = 0
 
+out:
 	for {
-		vm := p.provisionVmFn()
-
-		if vm != nil {
-			err := p.Release(vm)
-
-			if err != nil {
-				return err
-			}
-
-			i++
-		}
-
 		if i >= p.size {
 			break
+		}
+
+		provisionRetries := 0
+
+		for {
+			if provisionRetries >= PROVISION_RETRY_TIMES {
+				return PROVISION_LIMIT_ERROR
+			}
+
+			vm := p.provisionVmFn()
+
+			if vm != nil {
+				err := p.Release(vm)
+
+				if err != nil {
+					return err
+				}
+
+				i++
+				continue out
+			} else {
+				provisionRetries++
+			}
 		}
 	}
 
@@ -103,30 +118,18 @@ func (p *Pool) init() error {
 }
 
 func (p *Pool) SelectAndPop(take func(*vm.VM) bool) (*vm.VM, error) {
-	var takeElement *vm.VM
-	newQueue := p.queue
+	if len(p.queue) == 0 {
+		return nil, errors.New("Cannot pop element: backend is empty")
+	}
 
-	if len(newQueue) == 0 {
-		vm := p.provisionVmFn()
-
-		if vm != nil {
-			return nil, errors.New("Cannot pop element: backend is empty")
-		} else {
-			newQueue = append(newQueue, vm)
+	for k, e := range p.queue {
+		if take(e) == true {
+			p.queue = append(p.queue[:k], p.queue[k+1:]...)
+			return e, nil
 		}
 	}
 
-	for _, e := range newQueue {
-		if takeElement == nil && take(e) == true {
-			takeElement = e
-		} else {
-			newQueue = append(newQueue, e)
-		}
-	}
-
-	p.queue = newQueue
-
-	return takeElement, nil
+	return nil, nil
 }
 
 func (p *Pool) Pop() (*vm.VM, error) {
@@ -152,8 +155,20 @@ func (p *Pool) Release(e *vm.VM) error {
 	return nil
 }
 
+func (p *Pool) GetBackendSize() int {
+	return len(p.queue)
+}
+
 func (p *Pool) Delete(deletedVm *vm.VM) error {
+	i := 0
+
 	for {
+		if i >= PROVISION_RETRY_TIMES {
+			return PROVISION_LIMIT_ERROR
+		}
+
+		i++
+
 		vm := p.provisionVmFn()
 
 		if vm != nil {
