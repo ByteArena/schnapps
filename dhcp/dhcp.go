@@ -2,61 +2,70 @@ package dhcp
 
 import (
 	"errors"
+	"math"
 	"net"
 )
 
-const (
-	IPAvailable = true
-)
-
-type key struct {
-	ip net.IP
-}
-
-type ipRangeBackend map[*key]bool
-
 type DHCPServer struct {
-	ips ipRangeBackend
+	Size           int
+	NetworkAddress net.IP
+	Current        int
+	Used           map[string]bool
+	Max            int
 }
 
 func NewDHCPServer(cidr string) (*DHCPServer, error) {
-	ipv4Addr, ipv4Net, err := net.ParseCIDR(cidr)
+	_, ipv4Net, err := net.ParseCIDR(cidr)
 
 	if err != nil {
 		return nil, err
 	}
 
-	ips := generateIpRangeFromNet(ipv4Addr, *ipv4Net)
-	backend := make(ipRangeBackend, 0)
+	size, _ := ipv4Net.Mask.Size()
 
-	for _, ip := range ips {
-		key := key{ip}
-		backend[&key] = IPAvailable
+	if size > 30 {
+		return nil, errors.New("Subnet is too small, CIDR should be at least /30")
 	}
 
+	max := int(math.Pow(2.0, 32.0-float64(size))) - 1 // Skip the broadcast address
+
 	return &DHCPServer{
-		ips: backend,
+		Size:           size,
+		Max:            max,
+		NetworkAddress: ipv4Net.IP,
+		Current:        0,
+		Used:           make(map[string]bool),
 	}, nil
 }
 
 func (dhcp *DHCPServer) Pop() (string, error) {
-	if len(dhcp.ips) == 0 {
-		return "", errors.New("Cannot pop from pool: no more IP available")
+	for i := 0; i < dhcp.Max; i++ {
+		next := dhcp.NextIP()
+		if !dhcp.Used[next] {
+			dhcp.Used[next] = true
+			return next, nil
+		}
+	}
+	return "", errors.New("No ip left")
+}
+
+func (dhcp *DHCPServer) NextIP() string {
+	dhcp.Current++
+	dhcp.Current = dhcp.Current % dhcp.Max
+	if dhcp.Current == 0 {
+		dhcp.Current = 1 // Skip the network address
 	}
 
-	// Take the first one (in guarantee random order)
-	for x, _ := range dhcp.ips {
-		delete(dhcp.ips, x)
-
-		return x.ip.String(), nil
+	curIP := dhcp.Current
+	ip := net.IP{0, 0, 0, 0}
+	for i := 3; i >= 0; i-- {
+		ip[i] = byte(curIP%256) + dhcp.NetworkAddress[i]
+		curIP = curIP / 256
 	}
 
-	return "", nil
+	return ip.String()
 }
 
 func (dhcp *DHCPServer) Release(ip string) {
-	parsedIp := net.ParseIP(ip)
-	key := key{parsedIp}
-
-	dhcp.ips[&key] = IPAvailable
+	delete(dhcp.Used, ip)
 }
