@@ -8,6 +8,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func newInt(x int) *int {
+	return &x
+}
+
 func TestDHCPServer(t *testing.T) {
 	type Result struct {
 		IP    string
@@ -20,7 +24,7 @@ func TestDHCPServer(t *testing.T) {
 		InitError     error
 		Results       []Result
 		UsedIPs       []string
-		StartIndex    int
+		StartIndex    *int
 		FreeIpAtIndex map[int]string
 	}{
 		{
@@ -31,7 +35,12 @@ func TestDHCPServer(t *testing.T) {
 		{
 			Name:    "it should generate an ip",
 			Network: "192.168.0.1/24",
-			Results: []Result{{IP: "192.168.0.1"}},
+			Results: []Result{{IP: "192.168.0.2"}},
+		},
+		{
+			Name:    "it should generate an ip starting from the CIDR ip",
+			Network: "192.168.0.100/24",
+			Results: []Result{{IP: "192.168.0.101"}},
 		},
 		{
 			Name:    "it should send an error when there is no IP available",
@@ -58,13 +67,13 @@ func TestDHCPServer(t *testing.T) {
 		{
 			Name:       "it should loop back when the network is missing ips",
 			Network:    "10.0.0.0/24",
-			StartIndex: 253,
+			StartIndex: newInt(253),
 			Results:    []Result{{IP: "10.0.0.254"}, {IP: "10.0.0.1"}},
 		},
 		{
 			Name:       "it should continue to the next byte when the first one is full",
 			Network:    "10.0.0.0/16",
-			StartIndex: 254,
+			StartIndex: newInt(254),
 			Results:    []Result{{IP: "10.0.0.255"}, {IP: "10.0.1.0"}, {IP: "10.0.1.1"}},
 		},
 		{
@@ -92,8 +101,10 @@ func TestDHCPServer(t *testing.T) {
 				server.Used[ip] = true
 			}
 
-			// Set start index
-			server.Current = example.StartIndex
+			if example.StartIndex != nil {
+				// Set start index
+				server.Current = *example.StartIndex
+			}
 
 			// Test results
 			for i := 0; i < len(example.Results); i++ {

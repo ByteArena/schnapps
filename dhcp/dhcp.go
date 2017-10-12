@@ -15,7 +15,7 @@ type DHCPServer struct {
 }
 
 func NewDHCPServer(cidr string) (*DHCPServer, error) {
-	_, ipv4Net, err := net.ParseCIDR(cidr)
+	ipv4Start, ipv4Net, err := net.ParseCIDR(cidr)
 
 	if err != nil {
 		return nil, err
@@ -33,7 +33,7 @@ func NewDHCPServer(cidr string) (*DHCPServer, error) {
 		Size:           size,
 		Max:            max,
 		NetworkAddress: ipv4Net.IP,
-		Current:        0,
+		Current:        int(ipv4Start[len(ipv4Start)-1]),
 		Used:           make(map[string]bool),
 	}, nil
 }
