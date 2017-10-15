@@ -9,7 +9,7 @@ import (
 
 var (
 	GC_INTERVAL                = time.Duration(5 * time.Second)
-	NOK_HEALTCH_BEFORE_REMOVAL = 5
+	NOK_HEALTCH_BEFORE_REMOVAL = 15
 
 	PROVISION_RETRY_TIMES = 3
 	PROVISION_LIMIT_ERROR = errors.New("Cannot provision pool: retry limit reached")
