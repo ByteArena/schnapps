@@ -8,7 +8,8 @@ import (
 )
 
 var (
-	GC_INTERVAL = time.Duration(5 * time.Second)
+	GC_INTERVAL                = time.Duration(5 * time.Second)
+	NOK_HEALTCH_BEFORE_REMOVAL = 5
 
 	PROVISION_RETRY_TIMES = 3
 	PROVISION_LIMIT_ERROR = errors.New("Cannot provision pool: retry limit reached")
@@ -22,6 +23,8 @@ type Pool struct {
 
 	provisionVmFn  func() *vm.VM
 	healtcheckVmFn func(*vm.VM) bool
+
+	nokHealthChecksByVm map[*vm.VM]int
 
 	tickGC *time.Ticker
 	stopGC chan bool
@@ -37,6 +40,8 @@ func NewFixedVMPool(size int, provisionVmFn func() *vm.VM, healtcheckVmFn func(*
 		queue:          make(Queue, 0),
 		provisionVmFn:  provisionVmFn,
 		healtcheckVmFn: healtcheckVmFn,
+
+		nokHealthChecksByVm: make(map[*vm.VM]int),
 
 		tickGC: time.NewTicker(GC_INTERVAL),
 		stopGC: make(chan bool),
@@ -58,7 +63,26 @@ func (p *Pool) gc() {
 	for _, vm := range p.queue {
 
 		if p.healtcheckVmFn(vm) == false {
-			p.Delete(vm)
+			if _, hasCount := p.nokHealthChecksByVm[vm]; !hasCount {
+				p.nokHealthChecksByVm[vm] = 0
+			}
+
+			p.nokHealthChecksByVm[vm]++
+
+			if p.nokHealthChecksByVm[vm] >= NOK_HEALTCH_BEFORE_REMOVAL {
+				err := vm.Quit()
+
+				if err != nil {
+					delete(p.nokHealthChecksByVm, vm)
+					p.Delete(vm)
+				}
+			}
+		} else {
+
+			// Reset healthchecks fail incr
+			if _, hasCount := p.nokHealthChecksByVm[vm]; hasCount {
+				p.nokHealthChecksByVm[vm] = 0
+			}
 		}
 	}
 }

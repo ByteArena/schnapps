@@ -65,6 +65,10 @@ func (vm *VM) Quit() error {
 
 	command := []byte("{ \"execute\": \"quit\" }")
 
+	if vm.qmp == nil {
+		return errors.New("Cannot halt VM: not connected to the QMP server")
+	}
+
 	_, err := vm.qmp.Run(command)
 
 	if err != nil {

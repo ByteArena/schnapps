@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/bytearena/schnapps"
+	"github.com/bytearena/schnapps/types"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -61,16 +62,20 @@ func TestPoolGC(t *testing.T) {
 
 	provisionVmFn := func() *vm.VM {
 		provisionInc++
-		return &vm.VM{}
+		var config types.VMConfig
+
+		return vm.NewVM(config)
 	}
 
 	size := 1
 	pool, err := NewFixedVMPool(size, provisionVmFn, healtcheckVmFn)
 	assert.Nil(t, err)
 
-	pool.gc()
+	for i := 0; i < NOK_HEALTCH_BEFORE_REMOVAL; i++ {
+		pool.gc()
+	}
 
-	assert.Equal(t, healtcheckInc, size)
+	assert.Equal(t, healtcheckInc, size*NOK_HEALTCH_BEFORE_REMOVAL)
 	assert.Equal(t, provisionInc, size*2)
 
 	assert.Equal(t, pool.GetBackendSize(), 1)
