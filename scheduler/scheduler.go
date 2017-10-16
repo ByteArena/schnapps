@@ -11,6 +11,7 @@ import (
 var (
 	GC_INTERVAL                = time.Duration(5 * time.Second)
 	NOK_HEALTCH_BEFORE_REMOVAL = 15
+	HEALTHCHECK_TIMEOUT        = time.Duration(3 * time.Second)
 
 	PROVISION_LIMIT_ERROR = errors.New("Cannot provision pool: retry limit reached")
 )
@@ -56,13 +57,14 @@ func NewFixedVMPool(size int) (*Pool, error) {
 	}
 
 	go pool.init()
-
-	go pool.runBackgroundGC()
 	go pool.consumeEvents()
 
 	return pool, nil
 }
 
+/*
+	The garbage collection is reponsible for maintaining a healthy set of VM.
+*/
 func (p *Pool) gc() {
 
 	if len(p.queue) == 0 {
@@ -72,11 +74,33 @@ func (p *Pool) gc() {
 	p.healthcheckConsumerQueue = make(map[*vm.VM]bool)
 
 	for _, vm := range p.queue {
+		p.healthcheckConsumerQueue[vm] = false
+
 		p.produceEvent(HEALTHCHECK{vm})
 		p.healthcheckwg.Add(1)
 	}
 
-	p.healthcheckwg.Wait()
+	waitChan := make(chan bool)
+	timeoutChan := time.After(HEALTHCHECK_TIMEOUT)
+
+	go func() {
+		p.healthcheckwg.Wait()
+		waitChan <- true
+	}()
+
+	select {
+	case <-timeoutChan:
+	case <-waitChan:
+		p.processHealtcheckConsumerQueue()
+		close(waitChan)
+		return
+	}
+}
+
+func (p *Pool) processHealtcheckConsumerQueue() {
+	if len(p.healthcheckConsumerQueue) == 0 {
+		return
+	}
 
 	for vm, res := range p.healthcheckConsumerQueue {
 
@@ -101,24 +125,10 @@ func (p *Pool) gc() {
 	}
 }
 
-/*
-	The garbage collection is reponsible for maintaining a healthy set of VM.
-*/
-func (p *Pool) runBackgroundGC() {
-
-	for {
-		select {
-		case <-p.tickGC.C:
-			p.produceEvent(gc{})
-		}
-
-	}
-}
-
 func (p *Pool) init() error {
+	p.initwg.Add(p.size)
 
 	for i := 0; i < p.size; i++ {
-		p.initwg.Add(1)
 		p.produceEvent(PROVISION{})
 	}
 
@@ -172,8 +182,9 @@ func (p *Pool) GetBackendSize() int {
 }
 
 func (p *Pool) Delete(deletedVm *vm.VM) error {
-	p.produceEvent(VM_UNHEALTHY{deletedVm})
 	p.healthcheckwg.Add(1)
+
+	p.produceEvent(VM_UNHEALTHY{deletedVm})
 	p.produceEvent(PROVISION{})
 
 	return nil
@@ -217,12 +228,12 @@ func (p *Pool) consumeEvents() {
 				p.Release(msg.VM)
 				p.initwg.Done()
 
-			case gc:
-				p.gc()
-
 			default:
 				panic("Received unsupported message")
 			}
+
+		case <-p.tickGC.C:
+			p.gc()
 		}
 	}
 }
