@@ -107,11 +107,6 @@ func TestPoolGC(t *testing.T) {
 			pool.gc()
 		}
 
-		assert.Equal(t, healtcheckInc, size*NOK_HEALTCH_BEFORE_REMOVAL)
-		assert.Equal(t, provisionInc, size)
-
-		assert.Equal(t, pool.GetBackendSize(), size)
-
 		wait <- false
 	}
 
@@ -127,24 +122,30 @@ func TestPoolGC(t *testing.T) {
 					wait <- false
 
 				case HEALTHCHECK:
-					healtcheckInc++
 					pool.Consumer() <- HEALTHCHECK_RESULT{
 						VM:  msg.VM,
 						Res: false,
 					}
+					healtcheckInc++
+
 				case PROVISION:
-					provisionInc++
 					vm := &vm.VM{}
 					pool.Consumer() <- PROVISION_RESULT{vm}
+					provisionInc++
+
 				case READY:
 					go test()
 				}
+			case <-wait:
+				assert.Equal(t, healtcheckInc, size*NOK_HEALTCH_BEFORE_REMOVAL)
+				assert.Equal(t, provisionInc, size)
+
+				assert.Equal(t, pool.GetBackendSize(), size)
+				pool.Stop()
+				return
 			}
 		}
 	}()
-
-	<-wait
-	pool.Stop()
 }
 
 func TestPoolGCOverProvision(t *testing.T) {

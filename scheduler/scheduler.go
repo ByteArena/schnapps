@@ -35,7 +35,8 @@ type Pool struct {
 	healthcheckConsumerQueue map[*vm.VM]bool
 	nokHealthChecksByVm      map[*vm.VM]int
 
-	tickGC *time.Ticker
+	stopTheWorldMutex sync.Mutex
+	tickGC            *time.Ticker
 }
 
 func NewFixedVMPool(size int) (*Pool, error) {
@@ -66,20 +67,7 @@ func NewFixedVMPool(size int) (*Pool, error) {
 	The garbage collection is reponsible for maintaining a healthy set of VM.
 */
 func (p *Pool) gc() {
-
-	if len(p.queue) == 0 {
-		return // Nothing to check here
-	}
-
-	p.healthcheckConsumerQueue = make(map[*vm.VM]bool)
-
-	p.healthcheckwg.Add(len(p.queue))
-
-	for _, vm := range p.queue {
-		p.healthcheckConsumerQueue[vm] = false
-
-		p.produceEvent(HEALTHCHECK{vm})
-	}
+	p.sendHealthcheckRequests()
 
 	waitChan := make(chan bool)
 	timeoutChan := time.After(HEALTHCHECK_TIMEOUT)
@@ -92,18 +80,47 @@ func (p *Pool) gc() {
 	select {
 	case <-timeoutChan:
 	case <-waitChan:
-		p.processHealtcheckConsumerQueue()
+		queue := make(map[*vm.VM]bool)
+
+		// Copy array to avoid having to lock it
+		resume := p.stopTheWorld()
+		for k, v := range p.healthcheckConsumerQueue {
+			queue[k] = v
+		}
+		resume()
+
+		p.processHealtcheckConsumerQueue(queue)
 		close(waitChan)
 		return
 	}
 }
 
-func (p *Pool) processHealtcheckConsumerQueue() {
-	if len(p.healthcheckConsumerQueue) == 0 {
+func (p *Pool) sendHealthcheckRequests() {
+	p.healthcheckConsumerQueue = make(map[*vm.VM]bool)
+	p.healthcheckwg.Add(len(p.queue))
+
+	for _, vm := range p.queue {
+		p.healthcheckConsumerQueue[vm] = false
+
+		p.produceEvent(HEALTHCHECK{vm})
+	}
+}
+
+func (p *Pool) stopTheWorld() (resume func()) {
+	p.stopTheWorldMutex.Lock()
+
+	return func() {
+		p.stopTheWorldMutex.Unlock()
+	}
+}
+
+func (p *Pool) processHealtcheckConsumerQueue(queue map[*vm.VM]bool) {
+
+	if len(queue) == 0 {
 		return
 	}
 
-	for vm, res := range p.healthcheckConsumerQueue {
+	for vm, res := range queue {
 
 		if res == false {
 			if _, hasCount := p.nokHealthChecksByVm[vm]; !hasCount {
@@ -222,6 +239,8 @@ func (p *Pool) consumeEvents() {
 			switch msg := msg.(type) {
 
 			case HEALTHCHECK_RESULT:
+				resume := p.stopTheWorld()
+
 				if len(p.healthcheckConsumerQueue) <= len(p.queue) {
 
 					if !p.healthcheckConsumerQueue[msg.VM] {
@@ -233,6 +252,8 @@ func (p *Pool) consumeEvents() {
 					err := errors.New("Unexpected healtchcheck")
 					p.produceEvent(ERROR{err})
 				}
+
+				resume()
 
 			case PROVISION_RESULT:
 				err := p.Release(msg.VM)
