@@ -160,6 +160,9 @@ func (p *Pool) init() error {
 }
 
 func (p *Pool) Pop() (*vm.VM, error) {
+	resume := p.stopTheWorld()
+	defer resume()
+
 	if len(p.queue) == 0 {
 		return nil, errors.New("Cannot pop element: backend is empty")
 	} else {
