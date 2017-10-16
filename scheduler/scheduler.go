@@ -67,7 +67,9 @@ func NewFixedVMPool(size int) (*Pool, error) {
 	The garbage collection is reponsible for maintaining a healthy set of VM.
 */
 func (p *Pool) gc() {
+	resume := p.stopTheWorld()
 	p.sendHealthcheckRequests()
+	resume()
 
 	waitChan := make(chan bool)
 	timeoutChan := time.After(HEALTHCHECK_TIMEOUT)
@@ -256,7 +258,9 @@ func (p *Pool) consumeEvents() {
 				resume()
 
 			case PROVISION_RESULT:
+				resume := p.stopTheWorld()
 				err := p.Release(msg.VM)
+				resume()
 
 				if err == nil {
 					p.initwg.Done()
