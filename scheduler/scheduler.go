@@ -159,21 +159,6 @@ func (p *Pool) init() error {
 	return nil
 }
 
-func (p *Pool) SelectAndPop(take func(*vm.VM) bool) (*vm.VM, error) {
-	if len(p.queue) == 0 {
-		return nil, errors.New("Cannot pop element: backend is empty")
-	}
-
-	for k, e := range p.queue {
-		if take(e) == true {
-			p.queue = append(p.queue[:k], p.queue[k+1:]...)
-			return e, nil
-		}
-	}
-
-	return nil, nil
-}
-
 func (p *Pool) Pop() (*vm.VM, error) {
 	if len(p.queue) == 0 {
 		return nil, errors.New("Cannot pop element: backend is empty")
