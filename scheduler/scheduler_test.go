@@ -214,12 +214,17 @@ func TestPoolGCOverHealtcheck(t *testing.T) {
 					// Send another with the same vm
 					pool.Consumer() <- health
 
-					wait <- false
+					// Send another with an unknown vm
+					pool.Consumer() <- HEALTHCHECK_RESULT{
+						VM:  &vm.VM{},
+						Res: true,
+					}
 				case PROVISION:
 					vm := &vm.VM{}
 					pool.Consumer() <- PROVISION_RESULT{vm}
 				case ERROR:
 					errorCount++
+					wait <- false
 				case READY:
 					go pool.gc()
 				}
@@ -230,7 +235,7 @@ func TestPoolGCOverHealtcheck(t *testing.T) {
 	<-wait
 	pool.Stop()
 
-	assert.Equal(t, errorCount, 0)
+	assert.Equal(t, errorCount, 1)
 }
 
 func TestPoolSelectAndPop(t *testing.T) {

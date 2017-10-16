@@ -243,7 +243,7 @@ func (p *Pool) consumeEvents() {
 			case HEALTHCHECK_RESULT:
 				resume := p.stopTheWorld()
 
-				if len(p.healthcheckConsumerQueue) <= len(p.queue) {
+				if len(p.healthcheckConsumerQueue) <= len(p.queue) && isVmInQueue(p.queue, msg.VM) {
 
 					if !p.healthcheckConsumerQueue[msg.VM] {
 						p.healthcheckwg.Done()
