@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/bytearena/schnapps"
@@ -11,47 +12,55 @@ var (
 	GC_INTERVAL                = time.Duration(5 * time.Second)
 	NOK_HEALTCH_BEFORE_REMOVAL = 15
 
-	PROVISION_RETRY_TIMES = 3
 	PROVISION_LIMIT_ERROR = errors.New("Cannot provision pool: retry limit reached")
 )
 
 type Queue []*vm.VM
 
+type ProducerChan chan interface{}
+type ConsumerChan chan interface{}
+
 type Pool struct {
 	size  int
 	queue Queue
 
-	provisionVmFn  func() *vm.VM
-	healtcheckVmFn func(*vm.VM) bool
+	producer     ProducerChan
+	consumer     ConsumerChan
+	stopConsumer chan bool
 
-	nokHealthChecksByVm map[*vm.VM]int
+	initwg        sync.WaitGroup
+	healthcheckwg sync.WaitGroup
+
+	healthcheckConsumerQueue map[*vm.VM]bool
+	nokHealthChecksByVm      map[*vm.VM]int
 
 	tickGC *time.Ticker
-	stopGC chan bool
 }
 
-func NewFixedVMPool(size int, provisionVmFn func() *vm.VM, healtcheckVmFn func(*vm.VM) bool) (*Pool, error) {
+func NewFixedVMPool(size int) (*Pool, error) {
 	if size < 0 {
 		return nil, errors.New("Pool size cannot be negative")
 	}
 
 	pool := &Pool{
-		size:           size,
-		queue:          make(Queue, 0),
-		provisionVmFn:  provisionVmFn,
-		healtcheckVmFn: healtcheckVmFn,
+		size:  size,
+		queue: make(Queue, 0),
+
+		producer:     make(ProducerChan),
+		consumer:     make(ConsumerChan),
+		stopConsumer: make(chan bool),
 
 		nokHealthChecksByVm: make(map[*vm.VM]int),
 
 		tickGC: time.NewTicker(GC_INTERVAL),
-		stopGC: make(chan bool),
 	}
 
-	err := pool.init()
+	go pool.init()
 
 	go pool.runBackgroundGC()
+	go pool.consumeEvents()
 
-	return pool, err
+	return pool, nil
 }
 
 func (p *Pool) gc() {
@@ -60,9 +69,18 @@ func (p *Pool) gc() {
 		return // Nothing to check here
 	}
 
-	for _, vm := range p.queue {
+	p.healthcheckConsumerQueue = make(map[*vm.VM]bool)
 
-		if p.healtcheckVmFn(vm) == false {
+	for _, vm := range p.queue {
+		p.produceEvent(HEALTHCHECK{vm})
+		p.healthcheckwg.Add(1)
+	}
+
+	p.healthcheckwg.Wait()
+
+	for vm, res := range p.healthcheckConsumerQueue {
+
+		if res == false {
 			if _, hasCount := p.nokHealthChecksByVm[vm]; !hasCount {
 				p.nokHealthChecksByVm[vm] = 0
 			}
@@ -70,12 +88,8 @@ func (p *Pool) gc() {
 			p.nokHealthChecksByVm[vm]++
 
 			if p.nokHealthChecksByVm[vm] >= NOK_HEALTCH_BEFORE_REMOVAL {
-				err := vm.Quit()
-
-				if err != nil {
-					delete(p.nokHealthChecksByVm, vm)
-					p.Delete(vm)
-				}
+				delete(p.nokHealthChecksByVm, vm)
+				p.Delete(vm)
 			}
 		} else {
 
@@ -94,49 +108,23 @@ func (p *Pool) runBackgroundGC() {
 
 	for {
 		select {
-		case <-p.stopGC:
-			return
-
 		case <-p.tickGC.C:
-			p.gc()
-
+			p.produceEvent(gc{})
 		}
 
 	}
 }
 
 func (p *Pool) init() error {
-	var i = 0
 
-out:
-	for {
-		if i >= p.size {
-			break
-		}
-
-		provisionRetries := 0
-
-		for {
-			if provisionRetries >= PROVISION_RETRY_TIMES {
-				return PROVISION_LIMIT_ERROR
-			}
-
-			vm := p.provisionVmFn()
-
-			if vm != nil {
-				err := p.Release(vm)
-
-				if err != nil {
-					return err
-				}
-
-				i++
-				continue out
-			} else {
-				provisionRetries++
-			}
-		}
+	for i := 0; i < p.size; i++ {
+		p.initwg.Add(1)
+		p.produceEvent(PROVISION{})
 	}
+
+	p.initwg.Wait()
+
+	p.produceEvent(READY{})
 
 	return nil
 }
@@ -184,22 +172,57 @@ func (p *Pool) GetBackendSize() int {
 }
 
 func (p *Pool) Delete(deletedVm *vm.VM) error {
-	i := 0
-
-	for {
-		if i >= PROVISION_RETRY_TIMES {
-			return PROVISION_LIMIT_ERROR
-		}
-
-		i++
-
-		vm := p.provisionVmFn()
-
-		if vm != nil {
-			p.Release(vm)
-			break
-		}
-	}
+	p.produceEvent(VM_UNHEALTHY{deletedVm})
+	p.healthcheckwg.Add(1)
+	p.produceEvent(PROVISION{})
 
 	return nil
+}
+
+func (p *Pool) Events() ProducerChan {
+	return p.producer
+}
+
+func (p *Pool) Consumer() ConsumerChan {
+	return p.consumer
+}
+
+func (p *Pool) Stop() {
+	p.stopConsumer <- true
+
+	close(p.stopConsumer)
+}
+
+// Asynchronously emit a action form the scheduler
+func (p *Pool) produceEvent(msg interface{}) {
+	go func() {
+		p.producer <- msg
+	}()
+}
+
+func (p *Pool) consumeEvents() {
+	for {
+		select {
+		case <-p.stopConsumer:
+			return
+
+		case msg := <-p.consumer:
+			switch msg := msg.(type) {
+
+			case HEALTHCHECK_RESULT:
+				p.healthcheckConsumerQueue[msg.VM] = msg.Res
+				p.healthcheckwg.Done()
+
+			case PROVISION_RESULT:
+				p.Release(msg.VM)
+				p.initwg.Done()
+
+			case gc:
+				p.gc()
+
+			default:
+				panic("Received unsupported message")
+			}
+		}
+	}
 }
