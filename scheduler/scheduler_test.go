@@ -113,7 +113,6 @@ func TestPoolGC(t *testing.T) {
 		assert.Equal(t, pool.GetBackendSize(), size)
 
 		wait <- false
-		pool.Stop()
 	}
 
 	go func() {
@@ -123,6 +122,10 @@ func TestPoolGC(t *testing.T) {
 			select {
 			case msg := <-events:
 				switch msg := msg.(type) {
+				case ERROR:
+					assert.Fail(t, msg.err.Error())
+					wait <- false
+
 				case HEALTHCHECK:
 					healtcheckInc++
 					pool.Consumer() <- HEALTHCHECK_RESULT{
@@ -139,7 +142,9 @@ func TestPoolGC(t *testing.T) {
 			}
 		}
 	}()
+
 	<-wait
+	pool.Stop()
 }
 
 func TestPoolGCOverProvision(t *testing.T) {
@@ -181,6 +186,50 @@ func TestPoolGCOverProvision(t *testing.T) {
 	<-wait
 
 	assert.Equal(t, errorCount, 1)
+}
+
+func TestPoolGCOverHealtcheck(t *testing.T) {
+	errorCount := 0
+	size := 1
+	wait := make(chan bool)
+
+	pool, err := NewFixedVMPool(size)
+	assert.Nil(t, err)
+
+	go func() {
+		events := pool.Events()
+
+		for {
+			select {
+			case msg := <-events:
+				switch msg := msg.(type) {
+				case HEALTHCHECK:
+					health := HEALTHCHECK_RESULT{
+						VM:  msg.VM,
+						Res: true,
+					}
+					pool.Consumer() <- health
+
+					// Send another with the same vm
+					pool.Consumer() <- health
+
+					wait <- false
+				case PROVISION:
+					vm := &vm.VM{}
+					pool.Consumer() <- PROVISION_RESULT{vm}
+				case ERROR:
+					errorCount++
+				case READY:
+					go pool.gc()
+				}
+			}
+		}
+	}()
+
+	<-wait
+	pool.Stop()
+
+	assert.Equal(t, errorCount, 0)
 }
 
 func TestPoolSelectAndPop(t *testing.T) {

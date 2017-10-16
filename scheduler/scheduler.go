@@ -73,11 +73,12 @@ func (p *Pool) gc() {
 
 	p.healthcheckConsumerQueue = make(map[*vm.VM]bool)
 
+	p.healthcheckwg.Add(len(p.queue))
+
 	for _, vm := range p.queue {
 		p.healthcheckConsumerQueue[vm] = false
 
 		p.produceEvent(HEALTHCHECK{vm})
-		p.healthcheckwg.Add(1)
 	}
 
 	waitChan := make(chan bool)
@@ -221,8 +222,17 @@ func (p *Pool) consumeEvents() {
 			switch msg := msg.(type) {
 
 			case HEALTHCHECK_RESULT:
-				p.healthcheckConsumerQueue[msg.VM] = msg.Res
-				p.healthcheckwg.Done()
+				if len(p.healthcheckConsumerQueue) <= len(p.queue) {
+
+					if !p.healthcheckConsumerQueue[msg.VM] {
+						p.healthcheckwg.Done()
+					}
+
+					p.healthcheckConsumerQueue[msg.VM] = msg.Res
+				} else {
+					err := errors.New("Unexpected healtchcheck")
+					p.produceEvent(ERROR{err})
+				}
 
 			case PROVISION_RESULT:
 				err := p.Release(msg.VM)
