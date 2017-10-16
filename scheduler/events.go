@@ -22,3 +22,5 @@ type PROVISION_RESULT struct {
 
 type gc struct{}
 type READY struct{}
+
+type ERROR struct{ err error }

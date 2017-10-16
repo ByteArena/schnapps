@@ -8,6 +8,7 @@ import (
 )
 
 func TestFixedVMPool(t *testing.T) {
+	wait := make(chan bool)
 	size := 1
 
 	pool, err := NewFixedVMPool(size)
@@ -29,7 +30,7 @@ func TestFixedVMPool(t *testing.T) {
 
 		assert.Equal(t, pool.GetBackendSize(), size)
 		pool.Stop()
-
+		wait <- false
 	}
 
 	go func() {
@@ -48,10 +49,12 @@ func TestFixedVMPool(t *testing.T) {
 			}
 		}
 	}()
+	<-wait
 }
 
 func TestPoolDelete(t *testing.T) {
 	size := 1
+	wait := make(chan bool)
 	pool, err := NewFixedVMPool(size)
 	assert.Nil(t, err)
 
@@ -66,6 +69,7 @@ func TestPoolDelete(t *testing.T) {
 		assert.Equal(t, pool.GetBackendSize(), 0)
 
 		pool.Stop()
+		wait <- false
 	}
 
 	go func() {
@@ -85,12 +89,14 @@ func TestPoolDelete(t *testing.T) {
 		}
 	}()
 
+	<-wait
 }
 
 func TestPoolGC(t *testing.T) {
 	healtcheckInc := 0
 	provisionInc := 0
 	size := 1
+	wait := make(chan bool)
 
 	pool, err := NewFixedVMPool(size)
 	assert.Nil(t, err)
@@ -102,10 +108,11 @@ func TestPoolGC(t *testing.T) {
 		}
 
 		assert.Equal(t, healtcheckInc, size*NOK_HEALTCH_BEFORE_REMOVAL)
-		assert.Equal(t, provisionInc, size*2)
+		assert.Equal(t, provisionInc, size)
 
-		assert.Equal(t, pool.GetBackendSize(), 1)
+		assert.Equal(t, pool.GetBackendSize(), size)
 
+		wait <- false
 		pool.Stop()
 	}
 
@@ -127,15 +134,58 @@ func TestPoolGC(t *testing.T) {
 					vm := &vm.VM{}
 					pool.Consumer() <- PROVISION_RESULT{vm}
 				case READY:
-					test()
+					go test()
 				}
 			}
 		}
 	}()
+	<-wait
+}
+
+func TestPoolGCOverProvision(t *testing.T) {
+	errorCount := 0
+	size := 1
+	wait := make(chan bool)
+
+	pool, err := NewFixedVMPool(size)
+	assert.Nil(t, err)
+
+	go func() {
+		events := pool.Events()
+
+		for {
+			select {
+			case msg := <-events:
+				switch msg := msg.(type) {
+				case HEALTHCHECK:
+					pool.Consumer() <- HEALTHCHECK_RESULT{
+						VM:  msg.VM,
+						Res: false,
+					}
+				case PROVISION:
+					vm := &vm.VM{}
+					pool.Consumer() <- PROVISION_RESULT{vm}
+
+					// Send two
+					pool.Consumer() <- PROVISION_RESULT{vm}
+				case ERROR:
+					errorCount++
+					wait <- false
+				case READY:
+					pool.Stop()
+				}
+			}
+		}
+	}()
+
+	<-wait
+
+	assert.Equal(t, errorCount, 1)
 }
 
 func TestPoolSelectAndPop(t *testing.T) {
 	size := 1
+	wait := make(chan bool)
 	pool, err := NewFixedVMPool(size)
 	assert.Nil(t, err)
 
@@ -156,7 +206,7 @@ func TestPoolSelectAndPop(t *testing.T) {
 		assert.NotNil(t, popErr2)
 
 		pool.Stop()
-
+		wait <- false
 	}
 
 	go func() {
@@ -175,4 +225,5 @@ func TestPoolSelectAndPop(t *testing.T) {
 			}
 		}
 	}()
+	<-wait
 }

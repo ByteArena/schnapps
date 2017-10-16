@@ -225,8 +225,13 @@ func (p *Pool) consumeEvents() {
 				p.healthcheckwg.Done()
 
 			case PROVISION_RESULT:
-				p.Release(msg.VM)
-				p.initwg.Done()
+				err := p.Release(msg.VM)
+
+				if err == nil {
+					p.initwg.Done()
+				} else {
+					p.produceEvent(ERROR{err})
+				}
 
 			default:
 				panic("Received unsupported message")
