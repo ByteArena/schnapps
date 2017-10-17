@@ -3,6 +3,7 @@ package scheduler
 import (
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bytearena/schnapps"
@@ -29,8 +30,8 @@ type Pool struct {
 	consumer     ConsumerChan
 	stopConsumer chan bool
 
-	initwg        sync.WaitGroup
-	healthcheckwg sync.WaitGroup
+	initCount        int32
+	healthcheckCount int32
 
 	healthcheckConsumerQueue map[*vm.VM]bool
 	nokHealthChecksByVm      map[*vm.VM]int
@@ -75,7 +76,17 @@ func (p *Pool) gc() {
 	timeoutChan := time.After(HEALTHCHECK_TIMEOUT)
 
 	go func() {
-		p.healthcheckwg.Wait()
+		pollUntil(func() bool {
+			count := atomic.LoadInt32(&p.healthcheckCount)
+
+			if count <= 0 {
+				atomic.StoreInt32(&p.healthcheckCount, 0)
+				return true
+			} else {
+				return false
+			}
+		})
+
 		waitChan <- true
 	}()
 
@@ -99,7 +110,8 @@ func (p *Pool) gc() {
 
 func (p *Pool) sendHealthcheckRequests() {
 	p.healthcheckConsumerQueue = make(map[*vm.VM]bool)
-	p.healthcheckwg.Add(len(p.queue))
+
+	atomic.StoreInt32(&p.healthcheckCount, int32(len(p.queue)))
 
 	for _, vm := range p.queue {
 		p.healthcheckConsumerQueue[vm] = false
@@ -146,13 +158,22 @@ func (p *Pool) processHealtcheckConsumerQueue(queue map[*vm.VM]bool) {
 }
 
 func (p *Pool) init() error {
-	p.initwg.Add(p.size)
+	atomic.StoreInt32(&p.initCount, int32(p.size))
 
 	for i := 0; i < p.size; i++ {
 		p.produceEvent(PROVISION{})
 	}
 
-	p.initwg.Wait()
+	pollUntil(func() bool {
+		count := atomic.LoadInt32(&p.initCount)
+
+		if count <= 0 {
+			atomic.StoreInt32(&p.initCount, 0)
+			return true
+		} else {
+			return false
+		}
+	})
 
 	p.produceEvent(READY{})
 
@@ -190,7 +211,7 @@ func (p *Pool) GetBackendSize() int {
 }
 
 func (p *Pool) Delete(deletedVm *vm.VM) error {
-	p.healthcheckwg.Add(1)
+	atomic.AddInt32(&p.healthcheckCount, 1)
 
 	p.produceEvent(VM_UNHEALTHY{deletedVm})
 	p.produceEvent(PROVISION{})
@@ -234,7 +255,7 @@ func (p *Pool) consumeEvents() {
 				if len(p.healthcheckConsumerQueue) <= len(p.queue) && isVmInQueue(p.queue, msg.VM) {
 
 					if !p.healthcheckConsumerQueue[msg.VM] {
-						p.healthcheckwg.Done()
+						atomic.AddInt32(&p.healthcheckCount, -1)
 					}
 
 					p.healthcheckConsumerQueue[msg.VM] = msg.Res
@@ -251,7 +272,7 @@ func (p *Pool) consumeEvents() {
 				resume()
 
 				if err == nil {
-					p.initwg.Done()
+					atomic.AddInt32(&p.initCount, -1)
 				} else {
 					p.produceEvent(ERROR{err})
 				}
