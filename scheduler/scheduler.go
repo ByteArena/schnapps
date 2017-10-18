@@ -180,6 +180,7 @@ func (p *Pool) init() error {
 	return nil
 }
 
+// Does not block (until scheduler is in stop the world)
 func (p *Pool) Pop() (*vm.VM, error) {
 	resume := p.stopTheWorld()
 	defer resume()
@@ -196,7 +197,11 @@ func (p *Pool) Pop() (*vm.VM, error) {
 	}
 }
 
+// Does not block (until scheduler is in stop the world)
 func (p *Pool) Release(e *vm.VM) error {
+	resume := p.stopTheWorld()
+	defer resume()
+
 	if p.size <= len(p.queue) {
 		return errors.New("Cannot release element: backend reached the limit")
 	}

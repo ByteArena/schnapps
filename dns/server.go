@@ -31,10 +31,12 @@ func MakeServer(addr, zone string, records Records) Server {
 	}
 }
 
+// Register a function which will be invoked at each request.
 func (s *Server) SetOnRequestHook(fn onRequestHook) {
 	s.onRequestHook = fn
 }
 
+// Start the DNS server
 func (s *Server) Start() error {
 	dns.HandleFunc(s.zone, s.handleDnsRequest)
 
@@ -89,6 +91,7 @@ func (s *Server) handleDnsRequest(w dns.ResponseWriter, r *dns.Msg) {
 	w.WriteMsg(m)
 }
 
+// Stop the DNS server
 func (s *Server) Stop() {
 	s.stopChan <- true
 	close(s.stopChan)
