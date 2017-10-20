@@ -28,6 +28,9 @@ func GenerateRandomMAC() string {
 }
 
 func GetVMMAC(vm *vm.VM) (mac string, found bool) {
+	if vm == nil {
+		return "", false
+	}
 
 	for _, nic := range vm.Config.NICs {
 		if bridge, ok := nic.(types.NICBridge); ok {
