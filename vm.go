@@ -12,6 +12,7 @@ import (
 
 	"github.com/bytearena/schnapps/cli"
 	"github.com/bytearena/schnapps/libvirt"
+	schnappsqmp "github.com/bytearena/schnapps/qmp"
 	"github.com/bytearena/schnapps/types"
 	"github.com/bytearena/schnapps/utils"
 	"github.com/digitalocean/go-qemu/qmp"
@@ -27,10 +28,11 @@ type VM struct {
 }
 
 func NewVM(config types.VMConfig) *VM {
+	qmpport := schnappsqmp.GetNextPort()
 
 	config.QMPServer = &types.QMPServer{
 		Protocol: "tcp",
-		Addr:     "localhost:444" + strconv.Itoa(config.Id),
+		Addr:     "localhost:" + strconv.Itoa(qmpport),
 	}
 
 	return &VM{
