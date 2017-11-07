@@ -21,3 +21,7 @@
 ## Roadmap
 
 - Network gateway (via tap/tun on the host)
+
+## With Linuxkit
+
+- Assign IP using the metadata server: [xtuc/schnapps-ip-metadata](https://github.com/xtuc/Dockerfiles/tree/master/schnapps-ip-metadata)
