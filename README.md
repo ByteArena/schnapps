@@ -2,6 +2,10 @@
 
 > KVM tooling and API
 
+## Examples
+
+- [simple](./examples/simple)
+
 ## Running in Docker
 
 - To be able to use KVM, you need to have the proper unix capabilities.
